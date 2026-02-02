@@ -1,0 +1,33 @@
+# Large vendor/downloaded artifacts
+istio-*/
+istioctl
+
+# Certificates and secrets
+certs/
+**/cacerts/
+*.pem
+*.key
+*.crt
+*.csr
+
+# Local kubeconfig and CLI state
+.kube/
+kubeconfig
+**/*kubeconfig*
+
+# Logs and temporary files
+*.log
+*.tmp
+*.swp
+*~
+.DS_Store
+
+# OCI/terraform state (if present)
+.terraform/
+*.tfstate
+*.tfstate.*
+terraform.tfvars
+
+# Editor/IDE
+.vscode/
+.idea/
