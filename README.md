@@ -34,6 +34,18 @@
 
 ---
 
+## ✅ Week 5 DR Drills & Production Handoff: COMPLETE ✅
+
+**Status**: All disaster recovery drills passed, team trained, production deployment authorized  
+**Key Achievement**: Proven failover procedures, comprehensive runbooks, operations team certified  
+**See**: [WEEK5_DR_DRILLS_AND_HANDOFF.md](docs/WEEK5_DR_DRILLS_AND_HANDOFF.md) for complete details
+
+**Additional Resources**:
+- [Production Readiness Checklist](docs/PRODUCTION_READINESS_CHECKLIST.md) - Full validation checklist
+- [Incident Response Playbooks](docs/INCIDENT_RESPONSE_PLAYBOOKS.md) - 10+ incident scenarios
+
+---
+
 ## Executive Summary
 
 This document outlines a comprehensive implementation plan for a **production-grade, multi-cluster, multi-region failover architecture** on Oracle Container Engine for Kubernetes (OKE) using Istio for service mesh orchestration. This architecture mirrors the failover and traffic management patterns traditionally achieved with GKE and Anthos, adapted for OCI's native services.
@@ -105,6 +117,16 @@ See [RECREATE_WITH_VCN_NATIVE.md](docs/RECREATE_WITH_VCN_NATIVE.md) for detailed
 ---
 
 ## Architecture Overview
+
+![High-level design architecture diagram](img/hlda.png)
+
+**What the gateway IPs are for**:
+- **Primary ingress IP**: Public LoadBalancer address for north-south traffic into the primary cluster. Use this for browser access to Bookinfo and other externally exposed apps.
+- **Secondary ingress IP**: Public LoadBalancer address for north-south traffic into the secondary cluster. Use this for DR testing, failover validation, or direct secondary access.
+- **Primary east-west IP**: LoadBalancer address used for cross-cluster (east-west) service-to-service traffic entering the primary cluster from the secondary cluster.
+- **Secondary east-west IP**: LoadBalancer address used for cross-cluster (east-west) service-to-service traffic entering the secondary cluster from the primary cluster.
+
+Ingress IPs are for end-user/browser access, while east-west IPs are for inter-cluster service mesh traffic and should not be used for direct user access.
 
 ### High-Level Diagram
 

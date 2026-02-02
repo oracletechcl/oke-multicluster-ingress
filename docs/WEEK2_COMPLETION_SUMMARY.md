@@ -36,6 +36,24 @@ Week 2 Istio multi-cluster service mesh installation is complete with full cross
 - **Ingress Gateway**: Running with external IP `207.211.166.34`
 - **East-West Gateway**: Running with external IP `170.9.229.9`
 
+> **Note**: Ingress and east-west gateway IPs can change if services are removed/recreated. Use the commands below to fetch current values:
+
+```bash
+PRIMARY_INGRESS_IP=$(kubectl --context=primary-cluster-context get svc -n istio-system istio-ingressgateway \
+  -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+SECONDARY_INGRESS_IP=$(kubectl --context=secondary-cluster get svc -n istio-system istio-ingressgateway \
+  -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+PRIMARY_EASTWEST_IP=$(kubectl --context=primary-cluster-context get svc -n istio-system istio-eastwestgateway \
+  -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+SECONDARY_EASTWEST_IP=$(kubectl --context=secondary-cluster get svc -n istio-system istio-eastwestgateway \
+  -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+
+echo "Primary ingress: $PRIMARY_INGRESS_IP"
+echo "Secondary ingress: $SECONDARY_INGRESS_IP"
+echo "Primary east-west: $PRIMARY_EASTWEST_IP"
+echo "Secondary east-west: $SECONDARY_EASTWEST_IP"
+```
+
 ### Certificate Authority (CA) Configuration
 
 **Shared Trust Domain**: `oke.local`

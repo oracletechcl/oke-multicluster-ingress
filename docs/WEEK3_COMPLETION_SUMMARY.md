@@ -258,6 +258,18 @@ kubectl --context=primary-cluster-context apply -f yaml/observability-gateway.ya
 kubectl --context=secondary-cluster apply -f yaml/observability-gateway.yaml -n bookinfo
 ```
 
+**Get Current Ingress IPs (Dynamic)**:
+
+```bash
+PRIMARY_INGRESS_IP=$(kubectl --context=primary-cluster-context get svc -n istio-system istio-ingressgateway \
+  -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+SECONDARY_INGRESS_IP=$(kubectl --context=secondary-cluster get svc -n istio-system istio-ingressgateway \
+  -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+
+echo "Primary ingress: $PRIMARY_INGRESS_IP"
+echo "Secondary ingress: $SECONDARY_INGRESS_IP"
+```
+
 **Status**: ✅ External access configured for both ingress gateways
 
 ### 5. Observability Stack
