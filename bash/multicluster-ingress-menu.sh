@@ -309,6 +309,26 @@ verify_app_namespace() {
   return 0
 }
 
+annotate_app_namespace() {
+  local ctx="$1" ns="$2"
+  if [[ -z "$ns" ]]; then
+    log "ERROR: Namespace is required"
+    return 1
+  fi
+  if ! kctx "$ctx" get ns "$ns" >/dev/null 2>&1; then
+    log "Namespace $ns not found in $ctx. Creating it."
+    kctx "$ctx" create ns "$ns" 2>/dev/null || true
+  fi
+  log "Annotating namespace $ns in $ctx for Istio sidecar injection"
+  kctx "$ctx" label ns "$ns" istio-injection=enabled --overwrite >/dev/null 2>&1 || {
+    log "WARNING: Could not label namespace $ns in $ctx"
+  }
+  kctx "$ctx" annotate ns "$ns" sidecar.istio.io/inject="true" --overwrite >/dev/null 2>&1 || {
+    log "WARNING: Could not annotate namespace $ns in $ctx"
+  }
+  log "✓ Namespace $ns annotated for Istio sidecar injection in $ctx"
+}
+
 deploy_app() {
   local ctx="$1"
   if [[ ! -f "$BOOKINFO_APP_FILE" ]]; then
@@ -376,6 +396,25 @@ teardown_all_from_scratch() {
   log "✓ Multi-cluster ingress fully removed!"
 }
 
+annotate_namespace_menu() {
+  local ns ctx_choice
+  read -r -p "Namespace to annotate [default: ${BOOKINFO_NS}]: " ns
+  ns="${ns:-$BOOKINFO_NS}"
+
+  echo "Select target cluster:" 
+  echo "  1) Primary (${PRIMARY_CTX})"
+  echo "  2) Secondary (${SECONDARY_CTX})"
+  echo "  3) Both"
+  read -r -p "Choice: " ctx_choice
+
+  case "$ctx_choice" in
+    1) annotate_app_namespace "$PRIMARY_CTX" "$ns" ;;
+    2) annotate_app_namespace "$SECONDARY_CTX" "$ns" ;;
+    3) annotate_app_namespace "$PRIMARY_CTX" "$ns"; annotate_app_namespace "$SECONDARY_CTX" "$ns" ;;
+    *) log "Invalid choice" ;;
+  esac
+}
+
 menu() {
   while true; do
     echo ""
@@ -385,9 +424,10 @@ menu() {
     echo -e "${C_YELLOW}3)${C_RESET} Remove entire stack from scratch"
     echo -e "${C_YELLOW}4)${C_RESET} Setup cluster (primary)"
     echo -e "${C_YELLOW}5)${C_RESET} Setup cluster (secondary)"
-    echo -e "${C_YELLOW}6)${C_RESET} Enable ingress (submenu)"
-    echo -e "${C_YELLOW}7)${C_RESET} Disable ingress (submenu)"
-    echo -e "${C_YELLOW}8)${C_RESET} Print current IPs"
+    echo -e "${C_YELLOW}6)${C_RESET} Annotate app namespace for Istio sidecar"
+    echo -e "${C_YELLOW}7)${C_RESET} Enable ingress (submenu)"
+    echo -e "${C_YELLOW}8)${C_RESET} Disable ingress (submenu)"
+    echo -e "${C_YELLOW}9)${C_RESET} Print current IPs"
     echo -e "${C_YELLOW}0)${C_RESET} Exit"
     echo ""
     read -r -p "Select an option: " choice
@@ -398,9 +438,10 @@ menu() {
       3) teardown_all_from_scratch ;;
       4) setup_cluster_ingress "$PRIMARY_CTX" ;;
       5) setup_cluster_ingress "$SECONDARY_CTX" ;;
-      6) enable_submenu ;;
-      7) disable_submenu ;;
-      8) print_ips ;;
+      6) annotate_namespace_menu ;;
+      7) enable_submenu ;;
+      8) disable_submenu ;;
+      9) print_ips ;;
       0) exit 0 ;;
       *) echo "Invalid option" ;;
     esac
