@@ -4,6 +4,39 @@
 
 ---
 
+## 🚀 AUTOMATED SETUP (New!)
+
+**Rebuild entire infrastructure from scratch in one command**:
+
+```bash
+# Set your cluster contexts
+export PRIMARY_CTX="primary-cluster-context"
+export SECONDARY_CTX="secondary-cluster"
+
+# Run the automated setup menu
+./bash/multicluster-ingress-menu.sh
+
+# Select: 2 (Setup entire stack from scratch)
+# Wait ~5-10 minutes for completion
+# Script automatically:
+# - Verifies Istio installation
+# - Creates application namespace
+# - Deploys Bookinfo app
+# - Configures ingress gateways
+# - Displays LoadBalancer IPs
+```
+
+**Use cases**:
+- Cluster deletion and recreation
+- Fresh environment setup
+- DR recovery scenarios
+
+**For detailed usage**: See [MULTICLUSTER_INGRESS_MENU_GUIDE.md](MULTICLUSTER_INGRESS_MENU_GUIDE.md)
+
+**Want to do it manually?** Continue reading below for step-by-step instructions.
+
+---
+
 ## Table of Contents
 
 1. [Prerequisites](#prerequisites)

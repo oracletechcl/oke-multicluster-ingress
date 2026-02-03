@@ -2005,7 +2005,59 @@ kubectl --context=primary-cluster-context port-forward \
 
 ---
 
+## Operational Scripts
+
+### Multi-Cluster Ingress Menu Script
+
+The `bash/multicluster-ingress-menu.sh` script provides a menu-driven interface for managing the multi-cluster ingress infrastructure. It supports:
+
+- **Full-Stack Setup from Scratch**: Rebuild entire infrastructure after cluster deletion
+- **Status Checking**: View current ingress status and LoadBalancer IPs
+- **Cluster-Specific Setup**: Configure individual clusters independently
+- **Ingress Management**: Enable/disable ingress with flexible options
+- **IP Lookup**: Retrieve current LoadBalancer IPs for testing
+
+**Quick Start**:
+```bash
+export PRIMARY_CTX="primary-cluster"
+export SECONDARY_CTX="secondary-cluster"
+./bash/multicluster-ingress-menu.sh
+# Menu appears with 7 options (setup, enable, disable, status, IPs)
+```
+
+**Key Features**:
+- Fully idempotent: safe to re-run multiple times
+- Automatic pod readiness waiting (180s timeout)
+- Supports custom applications via `BOOKINFO_APP_FILE` environment variable
+- Color-coded output for readability
+- Automatic LoadBalancer service management
+
+**Menu Options**:
+1. Status check + current IPs
+2. Setup entire stack from scratch (both clusters)
+3. Setup cluster (primary)
+4. Setup cluster (secondary)
+5. Enable ingress (submenu with 6 options)
+6. Disable ingress (submenu with 6 options)
+7. Print current IPs
+
+**For detailed usage**: See [MULTICLUSTER_INGRESS_MENU_GUIDE.md](docs/MULTICLUSTER_INGRESS_MENU_GUIDE.md)
+
+### DR Drill Menu Script
+
+The `bash/dr-drill-menu.sh` script provides idempotent disaster recovery scenario testing:
+
+- **5 Failover Scenarios**: Test ingress, control plane, pod, east-west gateway, and latency injection
+- **Partial/Total Recovery**: Verify recovery procedures
+- **Run All Scenarios**: Execute complete DR validation
+- **Idempotent**: Safe for repeated testing
+
+**Use Case**: Validate failover procedures and team readiness
+
+---
+
 ## Operational Runbook
+
 
 ### 7.1 Accessing Observability Dashboards
 

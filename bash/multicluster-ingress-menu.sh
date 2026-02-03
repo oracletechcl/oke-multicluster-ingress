@@ -8,8 +8,13 @@ ISTIO_NS="${ISTIO_NS:-istio-system}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+BOOKINFO_APP_FILE="${BOOKINFO_APP_FILE:-${ROOT_DIR}/istio-1.28.3/samples/bookinfo/platform/kube/bookinfo.yaml}"
 GATEWAY_FILE="${GATEWAY_FILE:-${ROOT_DIR}/istio-1.28.3/samples/bookinfo/networking/bookinfo-gateway.yaml}"
 INGRESS_SVC_MANIFEST="${INGRESS_SVC_MANIFEST:-}"
+INGRESS_SVC_MANIFEST_PRIMARY="${INGRESS_SVC_MANIFEST_PRIMARY:-${ROOT_DIR}/yaml/istio-ingressgateway-oci-lb-primary.yaml}"
+INGRESS_SVC_MANIFEST_SECONDARY="${INGRESS_SVC_MANIFEST_SECONDARY:-${ROOT_DIR}/yaml/istio-ingressgateway-oci-lb-secondary.yaml}"
+ISTIO_VERSION="${ISTIO_VERSION:-1.28.3}"
+ISTIO_DIR="${ROOT_DIR}/istio-${ISTIO_VERSION}"
 
 log() {
   printf "%b[%s]%b %s\n" "${C_CYAN}" "$(date +"%Y-%m-%d %H:%M:%S")" "${C_RESET}" "$*"
@@ -58,7 +63,27 @@ ensure_contexts() {
 
 get_ip() {
   local ctx="$1" svc="$2" ns="$3"
-  kctx "$ctx" get svc "$svc" -n "$ns" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true
+  local ip
+  ip=$(kctx "$ctx" get svc "$svc" -n "$ns" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
+  if [[ -n "$ip" ]]; then
+    echo "$ip"
+    return 0
+  fi
+  kctx "$ctx" get svc "$svc" -n "$ns" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true
+}
+
+wait_for_ips() {
+  local ctx="$1" svc="$2" ns="$3" timeout=180 elapsed=0
+  while [[ $elapsed -lt $timeout ]]; do
+    local ip
+    ip=$(get_ip "$ctx" "$svc" "$ns")
+    if [[ -n "$ip" ]]; then
+      return 0
+    fi
+    sleep 5
+    elapsed=$((elapsed + 5))
+  done
+  return 1
 }
 
 print_ips() {
@@ -119,13 +144,43 @@ ensure_ingress_service() {
     return 0
   fi
 
-  if [[ -z "$INGRESS_SVC_MANIFEST" ]]; then
-    log "Ingress service missing in $ctx. Set INGRESS_SVC_MANIFEST to recreate the LoadBalancer service."
+  local manifest
+  if [[ "$ctx" == "$PRIMARY_CTX" ]]; then
+    manifest="$INGRESS_SVC_MANIFEST_PRIMARY"
+  elif [[ "$ctx" == "$SECONDARY_CTX" ]]; then
+    manifest="$INGRESS_SVC_MANIFEST_SECONDARY"
+  else
+    manifest="$INGRESS_SVC_MANIFEST"
+  fi
+
+  if [[ -n "$manifest" ]] && [[ -f "$manifest" ]]; then
+    log "Recreating ingress LoadBalancer service in $ctx using $manifest"
+    kctx "$ctx" apply -f "$manifest" -n "$ISTIO_NS"
     return 0
   fi
 
-  log "Recreating ingress LoadBalancer service in $ctx using $INGRESS_SVC_MANIFEST"
-  kctx "$ctx" apply -f "$INGRESS_SVC_MANIFEST" -n "$ISTIO_NS"
+  # Create a LoadBalancer service for ingress gateway
+  log "Creating ingress LoadBalancer service in $ctx"
+  kctx "$ctx" apply -f - -n "$ISTIO_NS" <<EOF
+apiVersion: v1
+kind: Service
+metadata:
+  name: istio-ingressgateway
+  namespace: istio-system
+spec:
+  type: LoadBalancer
+  selector:
+    istio: ingressgateway
+  ports:
+  - name: http2
+    port: 80
+    targetPort: 8080
+    protocol: TCP
+  - name: https
+    port: 443
+    targetPort: 8443
+    protocol: TCP
+EOF
 }
 
 delete_ingress_service() {
@@ -228,23 +283,124 @@ status_check() {
   print_ips
 }
 
+verify_istio() {
+  local ctx="$1"
+  if kctx "$ctx" get ns istio-system >/dev/null 2>&1; then
+    if kctx "$ctx" get deploy istiod -n istio-system >/dev/null 2>&1; then
+      log "Istio already installed in $ctx"
+      return 0
+    fi
+  fi
+  log "ERROR: Istio not found in $ctx. Please install Istio first."
+  return 1
+}
+
+verify_app_namespace() {
+  local ctx="$1"
+  if kctx "$ctx" get ns "$BOOKINFO_NS" >/dev/null 2>&1; then
+    log "Namespace $BOOKINFO_NS exists in $ctx"
+    return 0
+  fi
+  log "Creating namespace $BOOKINFO_NS in $ctx"
+  kctx "$ctx" create ns "$BOOKINFO_NS" 2>/dev/null || true
+  kctx "$ctx" label ns "$BOOKINFO_NS" istio-injection=enabled 2>/dev/null || {
+    log "WARNING: Could not label namespace. Sidecar injection may not work."
+  }
+  return 0
+}
+
+deploy_app() {
+  local ctx="$1"
+  if [[ ! -f "$BOOKINFO_APP_FILE" ]]; then
+    log "ERROR: App file not found: $BOOKINFO_APP_FILE"
+    return 1
+  fi
+  log "Deploying app to $ctx from $BOOKINFO_APP_FILE"
+  kctx "$ctx" apply -f "$BOOKINFO_APP_FILE" -n "$BOOKINFO_NS"
+  log "Waiting for app pods to be ready in $ctx (timeout: 180s)"
+  kctx "$ctx" wait --for=condition=ready pod -l app=productpage -n "$BOOKINFO_NS" --timeout=180s 2>/dev/null || {
+    log "WARNING: App pods not ready yet in $ctx. Continuing anyway."
+  }
+}
+
+setup_cluster_ingress() {
+  local ctx="$1"
+  log "Setting up full ingress stack for $ctx"
+  verify_istio "$ctx" || return 1
+  verify_app_namespace "$ctx"
+  deploy_app "$ctx"
+  ensure_ingress_service "$ctx"
+  scale_ingress_gateway "$ctx" 1
+  apply_gateway "$ctx"
+  log "✓ Setup complete for $ctx"
+}
+
+setup_all_from_scratch() {
+  log "Starting: Setting up entire multi-cluster ingress infrastructure from scratch"
+  setup_cluster_ingress "$PRIMARY_CTX" || {
+    log "ERROR: Primary cluster setup failed"
+    return 1
+  }
+  setup_cluster_ingress "$SECONDARY_CTX" || {
+    log "ERROR: Secondary cluster setup failed"
+    return 1
+  }
+  log "✓ Multi-cluster ingress fully configured!"
+    log "Waiting for LoadBalancer IPs to be assigned (this may take 30-60 seconds)..."
+    wait_for_ips "$PRIMARY_CTX" "istio-ingressgateway" "$ISTIO_NS" >/dev/null 2>&1 || true
+    wait_for_ips "$SECONDARY_CTX" "istio-ingressgateway" "$ISTIO_NS" >/dev/null 2>&1 || true
+  print_ips
+}
+
+teardown_cluster_ingress() {
+  local ctx="$1"
+  log "Tearing down ingress stack for $ctx"
+  delete_gateway "$ctx"
+  scale_ingress_gateway "$ctx" 0
+  delete_ingress_service "$ctx"
+  log "Deleting application namespace $BOOKINFO_NS in $ctx"
+  kctx "$ctx" delete ns "$BOOKINFO_NS" --ignore-not-found 2>/dev/null || true
+  log "✓ Teardown complete for $ctx"
+}
+
+teardown_all_from_scratch() {
+  log "Starting: Removing entire multi-cluster ingress infrastructure from scratch"
+  teardown_cluster_ingress "$PRIMARY_CTX" || {
+    log "ERROR: Primary cluster teardown failed"
+    return 1
+  }
+  teardown_cluster_ingress "$SECONDARY_CTX" || {
+    log "ERROR: Secondary cluster teardown failed"
+    return 1
+  }
+  log "✓ Multi-cluster ingress fully removed!"
+}
+
 menu() {
   while true; do
     echo ""
     echo -e "${C_BOLD}${C_CYAN}==== Multi-Cluster Ingress Menu ====${C_RESET}"
     echo -e "${C_YELLOW}1)${C_RESET} Status check + current IPs"
-    echo -e "${C_YELLOW}2)${C_RESET} Enable ingress (submenu)"
-    echo -e "${C_YELLOW}3)${C_RESET} Disable ingress (submenu)"
-    echo -e "${C_YELLOW}4)${C_RESET} Print current IPs"
+    echo -e "${C_YELLOW}2)${C_RESET} Setup entire stack from scratch"
+    echo -e "${C_YELLOW}3)${C_RESET} Remove entire stack from scratch"
+    echo -e "${C_YELLOW}4)${C_RESET} Setup cluster (primary)"
+    echo -e "${C_YELLOW}5)${C_RESET} Setup cluster (secondary)"
+    echo -e "${C_YELLOW}6)${C_RESET} Enable ingress (submenu)"
+    echo -e "${C_YELLOW}7)${C_RESET} Disable ingress (submenu)"
+    echo -e "${C_YELLOW}8)${C_RESET} Print current IPs"
     echo -e "${C_YELLOW}0)${C_RESET} Exit"
     echo ""
     read -r -p "Select an option: " choice
 
     case "$choice" in
       1) status_check ;;
-      2) enable_submenu ;;
-      3) disable_submenu ;;
-      4) print_ips ;;
+      2) setup_all_from_scratch ;;
+      3) teardown_all_from_scratch ;;
+      4) setup_cluster_ingress "$PRIMARY_CTX" ;;
+      5) setup_cluster_ingress "$SECONDARY_CTX" ;;
+      6) enable_submenu ;;
+      7) disable_submenu ;;
+      8) print_ips ;;
       0) exit 0 ;;
       *) echo "Invalid option" ;;
     esac

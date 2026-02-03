@@ -1,0 +1,30 @@
+# OCI LoadBalancer Service for Istio Ingress Gateway
+# Replace the subnet OCIDs with your public LB subnets before applying.
+# Example:
+#   service.beta.kubernetes.io/oci-load-balancer-subnet1: "ocid1.subnet.oc1..aaaa..."
+#   service.beta.kubernetes.io/oci-load-balancer-subnet2: "ocid1.subnet.oc1..bbbb..."
+apiVersion: v1
+kind: Service
+metadata:
+  name: istio-ingressgateway
+  namespace: istio-system
+  annotations:
+    service.beta.kubernetes.io/oci-load-balancer-internal: "false"
+    service.beta.kubernetes.io/oci-load-balancer-shape: "flexible"
+    service.beta.kubernetes.io/oci-load-balancer-shape-flex-min: "10"
+    service.beta.kubernetes.io/oci-load-balancer-shape-flex-max: "100"
+    service.beta.kubernetes.io/oci-load-balancer-subnet1: "<PUBLIC_LB_SUBNET_OCID_1>"
+    service.beta.kubernetes.io/oci-load-balancer-subnet2: "<PUBLIC_LB_SUBNET_OCID_2>"
+spec:
+  type: LoadBalancer
+  selector:
+    istio: ingressgateway
+  ports:
+    - name: http2
+      port: 80
+      targetPort: 8080
+      protocol: TCP
+    - name: https
+      port: 443
+      targetPort: 8443
+      protocol: TCP
