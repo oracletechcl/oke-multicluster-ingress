@@ -1,0 +1,32 @@
+# EnvoyFilter to add custom response header showing cluster name
+# This header will be visible in browser DevTools and can be used by frontend
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: add-cluster-header
+  namespace: istio-system
+spec:
+  workloadSelector:
+    labels:
+      istio: ingressgateway
+  configPatches:
+  - applyTo: HTTP_FILTER
+    match:
+      context: GATEWAY
+      listener:
+        filterChain:
+          filter:
+            name: "envoy.filters.network.http_connection_manager"
+            subFilter:
+              name: "envoy.filters.http.router"
+    patch:
+      operation: INSERT_BEFORE
+      value:
+        name: envoy.lua
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
+          inline_code: |
+            function envoy_on_response(response_handle)
+              response_handle:headers():add("X-Served-By-Cluster", "REPLACE_CLUSTER_NAME")
+            end
+---
